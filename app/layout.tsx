@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+import { Footer } from "@/components/Footer";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +16,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full bg-zinc-50 text-zinc-950">{children}</body>
+      <body className="min-h-full bg-zinc-50 text-zinc-950">
+        {children}
+        <Footer />
+      </body>
     </html>
   );
 }
