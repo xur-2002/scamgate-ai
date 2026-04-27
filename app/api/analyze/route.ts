@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { analyzeScam } from "@/lib/ai-analyzer";
+import { getCurrentUser } from "@/lib/auth";
 import { saveCheck } from "@/lib/db";
+import { getUserPlan } from "@/lib/entitlements";
 import { analyzeRiskRules } from "@/lib/risk-rules";
 import { getClientIp, getUsageStatus, hashIpAddress, recordSuccessfulUsage } from "@/lib/usage";
 import { inputTypes } from "@/lib/types";
@@ -93,11 +95,14 @@ export async function POST(request: Request) {
 
     const clientIp = getClientIp(request.headers);
     const ipHash = hashIpAddress(clientIp);
+    const user = await getCurrentUser();
+    const plan = await getUserPlan(user?.id);
     const identity = {
+      userId: user?.id,
       anonymousId: payload.anonymousId,
       ipHash,
     };
-    const usageStatus = await getUsageStatus(identity);
+    const usageStatus = await getUsageStatus(identity, plan);
 
     if (!usageStatus.allowed) {
       return NextResponse.json(
@@ -112,10 +117,20 @@ export async function POST(request: Request) {
     const ruleResult = analyzeRiskRules(payload.inputType, payload.content);
     const result = await analyzeScam(payload, ruleResult);
 
-    await saveCheck({ request: payload, result, ruleResult });
-    await recordSuccessfulUsage(identity);
+    await saveCheck({
+      request: payload,
+      result,
+      ruleResult,
+      userId: user?.id,
+      anonymousId: payload.anonymousId,
+    });
+    await recordSuccessfulUsage(identity, plan);
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      plan,
+      usage: usageStatus,
+    });
   } catch (error) {
     console.error("ScamGate analyze API error.", error);
     return NextResponse.json(

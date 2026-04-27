@@ -1,8 +1,15 @@
 import { CheckerTabs } from "@/components/CheckerTabs";
 import { Disclaimer } from "@/components/Disclaimer";
 import { Header } from "@/components/Header";
+import { getCurrentUser } from "@/lib/auth";
+import { getUserPlan } from "@/lib/entitlements";
 
-export default function CheckPage() {
+export const dynamic = "force-dynamic";
+
+export default async function CheckPage() {
+  const user = await getCurrentUser();
+  const plan = await getUserPlan(user?.id);
+
   return (
     <div className="min-h-screen bg-zinc-50">
       <Header />
@@ -18,7 +25,7 @@ export default function CheckPage() {
           </p>
         </div>
         <div className="mt-8">
-          <CheckerTabs />
+          <CheckerTabs initialPlan={plan} isLoggedIn={Boolean(user)} userId={user?.id} userEmail={user?.email} />
         </div>
         <div className="mt-8">
           <Disclaimer />

@@ -1,74 +1,89 @@
 "use client";
 
-import { CreditCard, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { CheckCircle2, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 
-import { getOrCreateAnonymousId } from "@/lib/client-identity";
+import { UpgradeButton } from "@/components/UpgradeButton";
+import type { Plan } from "@/lib/entitlements";
 
-type CheckoutResponse = {
-  configured?: boolean;
-  url?: string | null;
-  message?: string;
+type PricingCardProps = {
+  isLoggedIn: boolean;
+  userId?: string | null;
+  userEmail?: string | null;
+  currentPlan: Plan;
 };
 
-export function PricingCard() {
-  const [message, setMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+const freeFeatures = ["3 scam checks per day", "Text and link checking", "Basic plain-English risk explanation"];
+const proFeatures = [
+  "100 scam checks per day during beta",
+  "Text and link checking",
+  "Higher usage limit",
+  "Future screenshot and history access",
+];
 
-  async function handleUpgrade() {
-    setIsLoading(true);
-    setMessage(null);
-
-    try {
-      const response = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ anonymousId: getOrCreateAnonymousId() }),
-      });
-      const data = (await response.json()) as CheckoutResponse;
-
-      if (data.url) {
-        window.location.assign(data.url);
-        return;
-      }
-
-      setMessage(data.message || "Payments are not configured in this local demo.");
-    } catch {
-      setMessage("Payments are not configured in this local demo.");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
+function FeatureList({ features }: { features: string[] }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-50 text-emerald-800">
-          <ShieldCheck aria-hidden="true" className="h-6 w-6" />
-        </span>
-        <div>
-          <p className="text-lg font-bold text-zinc-950">ScamGate Pro</p>
-          <p className="text-zinc-600">$9/month</p>
+    <ul className="mt-6 space-y-3 text-base leading-7 text-zinc-700">
+      {features.map((feature) => (
+        <li key={feature} className="flex gap-3">
+          <CheckCircle2 aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-emerald-700" />
+          <span>{feature}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function PricingCard({ isLoggedIn, userId, userEmail, currentPlan }: PricingCardProps) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <section className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-100 text-zinc-800">
+            <ShieldCheck aria-hidden="true" className="h-6 w-6" />
+          </span>
+          <div>
+            <p className="text-lg font-bold text-zinc-950">Free</p>
+            <p className="text-zinc-600">$0</p>
+          </div>
         </div>
-      </div>
 
-      <ul className="mt-6 space-y-3 text-base leading-7 text-zinc-700">
-        <li>More scam checks each day</li>
-        <li>Text and link checks</li>
-        <li>Plain-English recommendations</li>
-      </ul>
+        <FeatureList features={freeFeatures} />
 
-      <button
-        type="button"
-        onClick={handleUpgrade}
-        disabled={isLoading}
-        className="mt-7 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-zinc-950 px-6 py-4 text-lg font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-      >
-        <CreditCard aria-hidden="true" className="h-5 w-5" />
-        {isLoading ? "Opening checkout..." : "Upgrade to Pro - $9/month"}
-      </button>
+        <Link
+          href="/check"
+          className="mt-7 inline-flex min-h-14 w-full items-center justify-center rounded-lg border border-zinc-300 bg-white px-6 py-4 text-lg font-semibold text-zinc-950 hover:bg-zinc-50"
+        >
+          Start Free Check
+        </Link>
+      </section>
 
-      {message ? <p className="mt-4 rounded-lg bg-amber-50 p-3 text-base text-amber-950">{message}</p> : null}
-    </section>
+      <section className="rounded-lg border-2 border-emerald-700 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-50 text-emerald-800">
+            <ShieldCheck aria-hidden="true" className="h-6 w-6" />
+          </span>
+          <div>
+            <p className="text-lg font-bold text-zinc-950">ScamGate Pro</p>
+            <p className="text-zinc-600">$9/month</p>
+          </div>
+        </div>
+
+        <FeatureList features={proFeatures} />
+
+        {currentPlan === "pro" ? (
+          <Link
+            href="/account"
+            className="mt-7 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-emerald-700 px-6 py-4 text-lg font-semibold text-white hover:bg-emerald-800"
+          >
+            Pro active
+          </Link>
+        ) : (
+          <div className="mt-7">
+            <UpgradeButton isLoggedIn={isLoggedIn} userId={userId} userEmail={userEmail} nextPath="/pricing" />
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

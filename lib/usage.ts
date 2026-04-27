@@ -2,12 +2,15 @@ import { createHash } from "crypto";
 
 import { getUsageCountToday, recordUsageEvent } from "@/lib/db";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
+import type { Plan } from "@/lib/entitlements";
 import type { UsageStatus } from "@/lib/types";
 
 const FREE_DAILY_LIMIT = 3;
+const PRO_DAILY_LIMIT = 100;
 const memoryUsage = new Map<string, { resetDate: string; count: number }>();
 
 type Identity = {
+  userId?: string;
   anonymousId?: string;
   ipHash?: string;
 };
@@ -36,22 +39,23 @@ function getTodayResetDate(): string {
 }
 
 function getMemoryKey(identity: Identity): string {
-  return identity.anonymousId ?? identity.ipHash ?? "anonymous";
+  return identity.userId ? `user:${identity.userId}` : (identity.anonymousId ?? identity.ipHash ?? "anonymous");
 }
 
 function isForceProEnabled(): boolean {
   return process.env.SCAMGATE_FORCE_PRO === "true";
 }
 
-export async function getUsageStatus(identity: Identity): Promise<UsageStatus> {
+export async function getUsageStatus(identity: Identity, plan: Plan): Promise<UsageStatus> {
   const resetDate = getTodayResetDate();
+  const limit = plan === "pro" ? PRO_DAILY_LIMIT : FREE_DAILY_LIMIT;
 
-  if (isForceProEnabled()) {
+  if (isForceProEnabled() || plan === "pro") {
     return {
       allowed: true,
       count: 0,
-      remaining: FREE_DAILY_LIMIT,
-      limit: FREE_DAILY_LIMIT,
+      remaining: limit,
+      limit,
       resetDate,
     };
   }
@@ -69,25 +73,30 @@ export async function getUsageStatus(identity: Identity): Promise<UsageStatus> {
   }
 
   return {
-    allowed: count < FREE_DAILY_LIMIT,
+    allowed: count < limit,
     count,
-    remaining: Math.max(0, FREE_DAILY_LIMIT - count),
-    limit: FREE_DAILY_LIMIT,
+    remaining: Math.max(0, limit - count),
+    limit,
     resetDate,
   };
 }
 
-export async function recordSuccessfulUsage(identity: Identity): Promise<void> {
+export async function recordSuccessfulUsage(identity: Identity, plan: Plan): Promise<void> {
   if (isForceProEnabled()) {
     return;
   }
 
   if (isSupabaseConfigured()) {
     await recordUsageEvent({
+      userId: identity.userId,
       anonymousId: identity.anonymousId,
       ipHash: identity.ipHash,
       eventType: "check_completed",
     });
+    return;
+  }
+
+  if (plan === "pro") {
     return;
   }
 

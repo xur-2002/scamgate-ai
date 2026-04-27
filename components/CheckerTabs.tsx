@@ -1,25 +1,40 @@
 "use client";
 
-import { LinkIcon, MessageSquareText, ShieldAlert } from "lucide-react";
+import { LinkIcon, MessageSquareText, ShieldAlert, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import { ResultCard } from "@/components/ResultCard";
+import { UpgradeButton } from "@/components/UpgradeButton";
 import { getOrCreateAnonymousId } from "@/lib/client-identity";
-import type { AnalysisResult, InputType } from "@/lib/types";
+import type { Plan } from "@/lib/entitlements";
+import type { AnalysisResult, InputType, UsageStatus } from "@/lib/types";
 
 const LOCAL_USAGE_KEY = "scamgate_local_usage";
-const PRO_KEY = "scamgate_pro";
 
 type TabId = Exclude<InputType, "screenshot">;
 
 type ApiMessage = {
   message: string;
+  usage?: UsageStatus;
+};
+
+type AnalyzeResponse = AnalysisResult & {
+  plan?: Plan;
+  usage?: UsageStatus;
 };
 
 type LocalUsage = {
   date: string;
   count: number;
+};
+
+type CheckerTabsProps = {
+  initialPlan: Plan;
+  isLoggedIn: boolean;
+  userId?: string | null;
+  userEmail?: string | null;
 };
 
 const tabs: Array<{ id: TabId; label: string; icon: typeof MessageSquareText }> = [
@@ -73,7 +88,7 @@ function isHttpUrl(value: string) {
   }
 }
 
-export function CheckerTabs() {
+export function CheckerTabs({ initialPlan, isLoggedIn, userId, userEmail }: CheckerTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("text");
   const [textValue, setTextValue] = useState("");
   const [linkValue, setLinkValue] = useState("");
@@ -83,32 +98,17 @@ export function CheckerTabs() {
   const [isLoading, setIsLoading] = useState(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [localUsage, setLocalUsageState] = useState<LocalUsage>({ date: getTodayKey(), count: 0 });
-  const [isPro, setIsPro] = useState(false);
+  const isPro = initialPlan === "pro";
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const params = new URLSearchParams(window.location.search);
-
-      if (params.get("upgraded") === "1") {
-        window.localStorage.setItem(PRO_KEY, "true");
-        setNotice("Upgrade successful. Pro mode is enabled for this browser.");
-      }
-
-      if (params.get("canceled") === "1") {
-        setNotice("Checkout was canceled. You can keep using your free checks.");
-      }
-
-      setIsPro(window.localStorage.getItem(PRO_KEY) === "true");
-      setLocalUsageState(getLocalUsage());
-    }, 0);
-
+    const timer = window.setTimeout(() => setLocalUsageState(getLocalUsage()), 0);
     return () => window.clearTimeout(timer);
   }, []);
 
   const remainingChecks = useMemo(() => Math.max(0, 3 - localUsage.count), [localUsage.count]);
 
-  function incrementLocalUsage() {
-    if (isPro) {
+  function incrementAnonymousLocalUsage() {
+    if (isLoggedIn || isPro) {
       return;
     }
 
@@ -121,32 +121,11 @@ export function CheckerTabs() {
     setLocalUsageState(next);
   }
 
-  function showPaywall() {
+  function showPaywall(message?: string) {
     setPaywallVisible(true);
     setError(null);
+    setNotice(message ?? null);
     setResult(null);
-  }
-
-  async function handleUpgrade() {
-    setNotice(null);
-
-    try {
-      const response = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ anonymousId: getOrCreateAnonymousId() }),
-      });
-      const data = (await response.json()) as { url?: string | null; message?: string };
-
-      if (data.url) {
-        window.location.assign(data.url);
-        return;
-      }
-
-      setNotice(data.message || "Payments are not configured in this local demo.");
-    } catch {
-      setNotice("Payments are not configured in this local demo.");
-    }
   }
 
   async function submitCheck(inputType: TabId) {
@@ -157,7 +136,7 @@ export function CheckerTabs() {
 
     const usage = getLocalUsage();
 
-    if (!isPro && usage.count >= 3) {
+    if (!isLoggedIn && !isPro && usage.count >= 3) {
       setLocalUsageState(usage);
       showPaywall();
       return;
@@ -180,6 +159,11 @@ export function CheckerTabs() {
       return;
     }
 
+    if (content.length > 12000) {
+      setError("Please shorten this input before checking. ScamGate accepts up to 12,000 characters.");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -195,7 +179,7 @@ export function CheckerTabs() {
       const data: unknown = await response.json();
 
       if (response.status === 429) {
-        showPaywall();
+        showPaywall(hasMessage(data) ? data.message : undefined);
         return;
       }
 
@@ -204,8 +188,9 @@ export function CheckerTabs() {
         return;
       }
 
-      setResult(data as AnalysisResult);
-      incrementLocalUsage();
+      const analysis = data as AnalyzeResponse;
+      setResult(analysis);
+      incrementAnonymousLocalUsage();
     } catch {
       setError("ScamGate could not reach the analysis service. Please try again.");
     } finally {
@@ -298,12 +283,22 @@ export function CheckerTabs() {
             information.
           </p>
           <p className="mt-2">
-            {isPro ? "Pro mode is enabled in this browser." : `${remainingChecks} free checks left today.`}
+            {isPro
+              ? "Pro active. You have higher daily checking limits."
+              : isLoggedIn
+                ? "Free plan: 3 scam checks per day."
+                : `${remainingChecks} free checks left today.`}
           </p>
         </div>
       </section>
 
       <section className="space-y-5">
+        {isPro ? (
+          <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-lg font-semibold text-emerald-950">
+            <ShieldCheck aria-hidden="true" className="h-6 w-6" />
+            Pro active
+          </div>
+        ) : null}
         {error ? <div className="break-words rounded-lg border border-red-200 bg-red-50 p-4 text-lg text-red-900">{error}</div> : null}
         {notice ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-lg text-amber-950">{notice}</div>
@@ -311,15 +306,19 @@ export function CheckerTabs() {
         {paywallVisible ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-6 shadow-sm">
             <ShieldAlert aria-hidden="true" className="h-10 w-10 text-amber-600" />
-            <h2 className="mt-4 text-2xl font-bold text-zinc-950">You&apos;ve used your 3 free checks today.</h2>
+            <h2 className="mt-4 text-2xl font-bold text-zinc-950">You&apos;ve used your 3 free scam checks today.</h2>
             <p className="mt-3 text-lg leading-8 text-zinc-700">Upgrade for more scam checks.</p>
-            <button
-              type="button"
-              onClick={() => void handleUpgrade()}
-              className="mt-5 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-zinc-950 px-6 py-4 text-lg font-semibold text-white hover:bg-zinc-800"
-            >
-              Upgrade to Pro - $9/month
-            </button>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <UpgradeButton isLoggedIn={isLoggedIn} userId={userId} userEmail={userEmail} nextPath="/pricing" />
+              {!isLoggedIn ? (
+                <Link
+                  href="/login?next=/check"
+                  className="inline-flex min-h-14 w-full items-center justify-center rounded-lg border border-zinc-300 bg-white px-6 py-4 text-lg font-semibold text-zinc-950 hover:bg-zinc-50"
+                >
+                  Login
+                </Link>
+              ) : null}
+            </div>
           </div>
         ) : null}
         {isLoading ? <LoadingState /> : null}
